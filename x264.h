@@ -908,6 +908,15 @@ typedef struct x264_picture_t
     void *opaque;
 } x264_picture_t;
 
+#define X264_SPIRAL_FRAME_PROPS_MAGIC 0x5350524Cu
+
+typedef struct x264_spiral_frame_props_t
+{
+    uint32_t i_magic;
+    int32_t i_layer;
+    int32_t i_max_ref_layer;
+} x264_spiral_frame_props_t;
+
 /* x264_picture_init:
  *  initialize an x264_picture_t.  Needs to be done if the calling application
  *  allocates its own x264_picture_t as opposed to using x264_picture_alloc. */

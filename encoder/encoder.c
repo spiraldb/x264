@@ -2292,6 +2292,39 @@ static inline int reference_distance( x264_t *h, x264_frame_t *frame )
         return abs(h->fenc->i_frame - frame->i_frame);
 }
 
+static inline const x264_spiral_frame_props_t *x264_spiral_frame_props( x264_frame_t *frame )
+{
+    if( !frame || !frame->opaque )
+        return NULL;
+    const x264_spiral_frame_props_t *props = frame->opaque;
+    return props->i_magic == X264_SPIRAL_FRAME_PROPS_MAGIC ? props : NULL;
+}
+
+static inline void reference_filter_spiral_exact_layers( x264_t *h )
+{
+    const x264_spiral_frame_props_t *props = x264_spiral_frame_props( h->fenc );
+    if( !props )
+        return;
+
+    for( int list = 0; list < 2; list++ )
+    {
+        int before = h->i_ref[list];
+        int write = 0;
+        for( int read = 0; read < h->i_ref[list]; read++ )
+        {
+            const x264_spiral_frame_props_t *ref_props = x264_spiral_frame_props( h->fref[list][read] );
+            if( !ref_props || ref_props->i_layer <= props->i_max_ref_layer )
+                h->fref[list][write++] = h->fref[list][read];
+        }
+        h->i_ref[list] = write;
+        if( write < X264_REF_MAX )
+            h->fref[list][write] = NULL;
+        h->fref_nearest[list] = write ? h->fref[list][0] : NULL;
+        if( before != write )
+            h->b_ref_reorder[list] = 1;
+    }
+}
+
 static inline void reference_build_list( x264_t *h, int i_poc )
 {
     int b_ok;
@@ -2359,6 +2392,7 @@ static inline void reference_build_list( x264_t *h, int i_poc )
         } while( !b_ok );
     }
 
+    reference_filter_spiral_exact_layers( h );
     reference_check_reorder( h );
 
     h->i_ref[1] = X264_MIN( h->i_ref[1], h->frames.i_max_ref1 );
@@ -2603,6 +2637,7 @@ static inline void reference_hierarchy_reset( x264_t *h )
     /* Prepare room in the dpb for the delayed display time of the later b-frame's */
     if( h->param.i_bframe_pyramid )
         h->sh.i_mmco_remove_from_end = X264_MAX( ref + 2 - h->frames.i_max_dpb, 0 );
+
 }
 
 static inline void slice_init( x264_t *h, int i_nal_type, int i_global_qp )
@@ -3563,6 +3598,7 @@ int     x264_encoder_encode( x264_t *h,
     h->fdec->mb_info_free = h->fenc->mb_info_free;
     h->fenc->mb_info = NULL;
     h->fenc->mb_info_free = NULL;
+    h->fdec->opaque = h->fenc->opaque;
 
     h->fdec->i_pts = h->fenc->i_pts;
     if( h->frames.i_bframe_delay )
