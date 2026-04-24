@@ -1742,6 +1742,84 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
 #endif
 }
 
+static inline const x264_spiral_frame_props_t *x264_spiral_frame_props( x264_frame_t *frame )
+{
+    if( !frame || !frame->opaque )
+        return NULL;
+    const x264_spiral_frame_props_t *props = frame->opaque;
+    return props->i_magic == X264_SPIRAL_FRAME_PROPS_MAGIC ? props : NULL;
+}
+
+static int x264_spiral_slicetype_decide( x264_t *h )
+{
+    int best = -1;
+    int best_decode_order = 0x7fffffff;
+
+    for( int i = 0; i < h->lookahead->next.i_size; i++ )
+    {
+        const x264_spiral_frame_props_t *props = x264_spiral_frame_props( h->lookahead->next.list[i] );
+        if( props && props->i_decode_order >= 0 && props->i_decode_order < best_decode_order )
+        {
+            best = i;
+            best_decode_order = props->i_decode_order;
+        }
+    }
+
+    if( best < 0 )
+        return 0;
+
+    if( best > 0 )
+    {
+        x264_frame_t *frame = h->lookahead->next.list[best];
+        memmove( &h->lookahead->next.list[1], &h->lookahead->next.list[0], best * sizeof(x264_frame_t*) );
+        h->lookahead->next.list[0] = frame;
+    }
+
+    x264_frame_t *frm = h->lookahead->next.list[0];
+
+    if( frm->i_type == X264_TYPE_AUTO )
+        frm->i_type = frm->i_frame == 0 ? X264_TYPE_IDR : X264_TYPE_P;
+    if( frm->i_type == X264_TYPE_KEYFRAME )
+        frm->i_type = h->param.b_open_gop ? X264_TYPE_I : X264_TYPE_IDR;
+    if( frm->i_type == X264_TYPE_I && frm->i_frame - h->lookahead->i_last_keyframe >= h->param.i_keyint_min )
+    {
+        if( h->param.b_open_gop )
+        {
+            h->lookahead->i_last_keyframe = frm->i_frame;
+            if( h->param.b_bluray_compat )
+                h->lookahead->i_last_keyframe--;
+            frm->b_keyframe = 1;
+        }
+        else
+            frm->i_type = X264_TYPE_IDR;
+    }
+    if( frm->i_type == X264_TYPE_IDR )
+    {
+        h->lookahead->i_last_keyframe = frm->i_frame;
+        frm->b_keyframe = 1;
+    }
+
+    if( frm->i_type == X264_TYPE_BREF && h->param.i_bframe_pyramid < X264_B_PYRAMID_NORMAL )
+    {
+        frm->i_type = X264_TYPE_B;
+        x264_log( h, X264_LOG_WARNING, "B-ref at frame %d incompatible with B-pyramid %s \n",
+                  frm->i_frame, x264_b_pyramid_names[h->param.i_bframe_pyramid] );
+    }
+    if( IS_X264_TYPE_B( frm->i_type ) && !h->param.i_bframe )
+    {
+        frm->i_type = X264_TYPE_P;
+        x264_log( h, X264_LOG_WARNING, "custom B frame at frame %d incompatible with max B-frames\n",
+                  frm->i_frame );
+    }
+
+    frm->i_bframes = 0;
+    frm->i_reordered_pts = frm->i_pts;
+    frm->i_coded = best_decode_order;
+    calculate_durations( h, frm, NULL, &h->i_cpb_delay, &h->i_coded_fields );
+
+    return 1;
+}
+
 void x264_slicetype_decide( x264_t *h )
 {
     x264_frame_t *frames[X264_BFRAME_MAX+2];
@@ -1782,6 +1860,9 @@ void x264_slicetype_decide( x264_t *h )
             h->lookahead->next.list[i]->i_duration = h->i_prev_duration;
         }
     }
+
+    if( x264_spiral_slicetype_decide( h ) )
+        return;
 
     if( h->param.rc.b_stat_read )
     {

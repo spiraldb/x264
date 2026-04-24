@@ -909,12 +909,17 @@ typedef struct x264_picture_t
 } x264_picture_t;
 
 #define X264_SPIRAL_FRAME_PROPS_MAGIC 0x5350524Cu
+#define X264_SPIRAL_MAX_FRAME_REFS 16
 
 typedef struct x264_spiral_frame_props_t
 {
     uint32_t i_magic;
+    int32_t i_frame_id;
+    int32_t i_decode_order;
     int32_t i_layer;
     int32_t i_max_ref_layer;
+    int32_t i_ref_count;
+    int32_t i_ref_frames[X264_SPIRAL_MAX_FRAME_REFS];
 } x264_spiral_frame_props_t;
 
 /* x264_picture_init:

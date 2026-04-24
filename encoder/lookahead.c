@@ -58,6 +58,8 @@ static void lookahead_shift( x264_sync_frame_list_t *dst, x264_sync_frame_list_t
 
 static void lookahead_update_last_nonb( x264_t *h, x264_frame_t *new_nonb )
 {
+    if( IS_X264_TYPE_B( new_nonb->i_type ) )
+        return;
     if( h->lookahead->last_nonb )
         x264_frame_push_unused( h, h->lookahead->last_nonb );
     h->lookahead->last_nonb = new_nonb;

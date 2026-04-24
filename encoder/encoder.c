@@ -2300,6 +2300,21 @@ static inline const x264_spiral_frame_props_t *x264_spiral_frame_props( x264_fra
     return props->i_magic == X264_SPIRAL_FRAME_PROPS_MAGIC ? props : NULL;
 }
 
+static inline int x264_spiral_ref_allowed( const x264_spiral_frame_props_t *props, const x264_spiral_frame_props_t *ref_props )
+{
+    if( props->i_ref_count >= 0 )
+    {
+        if( !ref_props )
+            return 0;
+        for( int i = 0; i < props->i_ref_count; i++ )
+            if( ref_props->i_frame_id == props->i_ref_frames[i] )
+                return 1;
+        return 0;
+    }
+
+    return !ref_props || ref_props->i_layer <= props->i_max_ref_layer;
+}
+
 static inline void reference_filter_spiral_exact_layers( x264_t *h )
 {
     const x264_spiral_frame_props_t *props = x264_spiral_frame_props( h->fenc );
@@ -2313,7 +2328,7 @@ static inline void reference_filter_spiral_exact_layers( x264_t *h )
         for( int read = 0; read < h->i_ref[list]; read++ )
         {
             const x264_spiral_frame_props_t *ref_props = x264_spiral_frame_props( h->fref[list][read] );
-            if( !ref_props || ref_props->i_layer <= props->i_max_ref_layer )
+            if( x264_spiral_ref_allowed( props, ref_props ) )
                 h->fref[list][write++] = h->fref[list][read];
         }
         h->i_ref[list] = write;
