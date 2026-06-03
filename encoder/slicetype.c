@@ -1750,6 +1750,19 @@ static inline const x264_spiral_frame_props_t *x264_spiral_frame_props( x264_fra
     return props->i_magic == X264_SPIRAL_FRAME_PROPS_MAGIC ? props : NULL;
 }
 
+static void x264_spiral_init_slicetype_costs( x264_t *h, x264_frame_t *frm )
+{
+    for( int p0 = 0; p0 < X264_BFRAME_MAX+2; p0++ )
+        for( int p1 = 0; p1 < X264_BFRAME_MAX+2; p1++ )
+        {
+            frm->i_cost_est[p0][p1] = 0;
+            frm->i_cost_est_aq[p0][p1] = 0;
+            if( frm->i_row_satds[p0][p1] )
+                memset( frm->i_row_satds[p0][p1], 0, h->mb.i_mb_height * sizeof(int) );
+        }
+    frm->i_satd = 0;
+}
+
 static int x264_spiral_slicetype_decide( x264_t *h )
 {
     int best = -1;
@@ -1816,6 +1829,7 @@ static int x264_spiral_slicetype_decide( x264_t *h )
     frm->i_reordered_pts = frm->i_pts;
     frm->i_coded = best_decode_order;
     calculate_durations( h, frm, NULL, &h->i_cpb_delay, &h->i_coded_fields );
+    x264_spiral_init_slicetype_costs( h, frm );
 
     return 1;
 }
