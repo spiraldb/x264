@@ -2340,6 +2340,33 @@ static inline void reference_filter_spiral_exact_layers( x264_t *h )
     }
 }
 
+/* A Spiral-scheduled B/B-ref frame must have an available backward (L1)
+ * reference by the time ratecontrol runs. In a partial final GOP the forward
+ * anchor a B references may never be submitted (its display position lies past
+ * end-of-stream), so it is never decoded and never enters the DPB. That leaves
+ * the B with an empty L1 list, and rate_estimate_qscale() unconditionally
+ * dereferences h->fref_nearest[1] / h->fref[1][h->i_ref[1]-1] for B slices ->
+ * SIGSEGV on flush (CRF only; fixed-QP frames skip rate_estimate_qscale).
+ * Mirror x264's normal end-of-stream behaviour and demote such a frame to P;
+ * its past/L0 anchor is always present, so P ratecontrol is well-defined. */
+static void x264_spiral_demote_unreferenced_bframe( x264_t *h )
+{
+    if( !IS_X264_TYPE_B( h->fenc->i_type ) )
+        return;
+    const x264_spiral_frame_props_t *props = x264_spiral_frame_props( h->fenc );
+    if( !props )
+        return;
+    for( int i = 0; h->frames.reference[i]; i++ )
+    {
+        x264_frame_t *ref = h->frames.reference[i];
+        if( ref->b_corrupt || ref->i_poc <= h->fenc->i_poc )
+            continue;
+        if( x264_spiral_ref_allowed( props, x264_spiral_frame_props( ref ) ) )
+            return; /* a usable future reference exists; keep it a B */
+    }
+    h->fenc->i_type = X264_TYPE_P;
+}
+
 static inline void reference_build_list( x264_t *h, int i_poc )
 {
     int b_ok;
@@ -3561,6 +3588,11 @@ int     x264_encoder_encode( x264_t *h,
     h->b_ref_reorder[1] = 0;
     h->fdec->i_poc =
     h->fenc->i_poc = 2 * ( h->fenc->i_frame - X264_MAX( h->frames.i_last_idr, 0 ) );
+
+    /* Spiral: a scheduled B whose forward anchor was never submitted (partial
+     * final GOP at flush) has no L1 reference; demote it to P before its slice
+     * type is derived so ratecontrol never dereferences a NULL backward ref. */
+    x264_spiral_demote_unreferenced_bframe( h );
 
     /* ------------------- Setup frame context ----------------------------- */
     /* 5: Init data dependent of frame type */
